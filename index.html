@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drag Race - Simulador</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#10131b;color:#fff;font-family:Arial,sans-serif;text-align:center}
+header{padding:16px 10px 8px}
+h1{margin:0;color:#00e5ff;letter-spacing:2px}
+p{color:#b9c4d4;margin:8px}
+.game{width:min(960px,96vw);margin:12px auto}
+canvas{width:100%;height:auto;display:block;background:#202735;border:2px solid #00e5ff;border-radius:12px;box-shadow:0 0 24px #00e5ff33}
+.panel{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:12px auto}
+.stat{background:#202735;border:1px solid #34445c;border-radius:10px;padding:10px 16px;min-width:105px}
+.stat small{display:block;color:#9eafc5;font-size:11px;text-transform:uppercase}
+.stat strong{font-size:22px}
+.controls{display:grid;grid-template-columns:repeat(3,minmax(80px,150px));gap:10px;justify-content:center;margin:14px auto}
+button{border:0;border-radius:10px;padding:14px 10px;background:#00d5ef;color:#07121a;font-weight:bold;font-size:16px;cursor:pointer;touch-action:manipulation}
+button:active{transform:scale(.97);filter:brightness(.85)}
+button.secondary{background:#34445c;color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+#message{min-height:26px;color:#ffe082;font-weight:bold}
+.hint{font-size:13px;color:#aab6c8;max-width:700px;margin:0 auto 20px}
+@media(max-width:480px){.stat{min-width:85px;padding:8px}.stat strong{font-size:18px}.controls{grid-template-columns:repeat(3,1fr)}button{font-size:14px;padding:13px 5px}}
+</style>
+</head>
+<body>
+<header>
+<h1>DRAG RACE</h1>
+<p>Prepare, acelere e troque as marchas na hora certa!</p>
+</header>
+<div class="game">
+<canvas id="track" width="900" height="360"></canvas>
+<div class="panel">
+ <div class="stat"><small>Velocidade</small><strong id="speed">0 km/h</strong></div>
+ <div class="stat"><small>Marcha</small><strong id="gear">N</strong></div>
+ <div class="stat"><small>RPM</small><strong id="rpm">900</strong></div>
+ <div class="stat"><small>Distância</small><strong id="distance">0 m</strong></div>
+ <div class="stat"><small>Tempo</small><strong id="time">0.00 s</strong></div>
+</div>
+<div id="message">Aperte INICIAR CORRIDA para alinhar o carro.</div>
+<div class="controls">
+ <button id="start">INICIAR CORRIDA</button>
+ <button id="gas" disabled>ACELERAR ▲</button>
+ <button id="shift" disabled>TROCAR MARCHA</button>
+ <button class="secondary" id="brake" disabled>FREAR</button>
+ <button class="secondary" id="reset">REINICIAR</button>
+ <button class="secondary" id="auto">CÂMBIO: MANUAL</button>
+</div>
+<div class="hint">
+No celular, segure <b>ACELERAR</b> e toque em <b>TROCAR MARCHA</b> perto de 6.500 RPM.
+No computador, use Espaço para acelerar, Shift para trocar marcha e Ctrl para frear.
+</div>
+</div>
+<script>
+const canvas=document.getElementById('track'),ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id);
+let state='ready',speed=0,rpm=900,gear=0,distance=0,elapsed=0,last=0,gas=false,brake=false,auto=false,finishTime=0;
+const ratios=[0,3.2,2.1,1.5,1.15,0.92,0.76],maxSpeed=[0,65,105,150,195,235,275];
+const gearNames=['N','1','2','3','4','5','6'];
+function reset(){
+ state='ready';speed=0;rpm=900;gear=0;distance=0;elapsed=0;finishTime=0;gas=false;brake=false;
+ $('message').textContent='Aperte INICIAR CORRIDA para alinhar o carro.';
+ $('start').disabled=false;$('gas').disabled=true;$('shift').disabled=true;$('brake').disabled=true;
+ update();
+}
+function start(){if(state!=='ready')return;state='race';gear=1;rpm=1000;elapsed=0;distance=0;last=performance.now();
+ $('message').textContent='VALENDO! Segure o acelerador!';$('start').disabled=true;$('gas').disabled=false;$('shift').disabled=false;$('brake').disabled=false;
+ requestAnimationFrame(loop)}
+function shiftGear(){
+ if(state!=='race'||auto)return;
+ if(gear<6){gear++;rpm=Math.max(2300,rpm-1700);$('message').textContent='Marcha '+gearNames[gear]+' engatada!';}
+}
+function loop(now){
+ if(state!=='race')return;
+ const dt=Math.min((now-last)/1000,.04);last=now;elapsed+=dt;
+ const target=gas?Math.min(7000,rpm+dt*4300):Math.max(900,rpm-dt*2500);
+ rpm=target;
+ if(auto&&rpm>6500&&gear<6)shiftAuto();
+ const ratio=ratios[gear]||0;
+ const accel=gas?(gear===0?0:((rpm/7000)*17/(1+gear*.12))):0;
+ speed+=accel*dt;
+ if(!gas)speed-=4.2*dt;
+ if(brake)speed-=26*dt;
+ speed=Math.max(0,Math.min(speed,maxSpeed[gear]||0));
+ if(gear>0){
+   const ideal=speed/(maxSpeed[gear]||1)*6500;
+   rpm=gas?Math.min(7000,Math.max(rpm,ideal)):Math.max(900,ideal);
+ }
+ distance+=speed/3.6*dt;
+ if(distance>=402.3){distance=402.3;state='finished';finishTime=elapsed;gas=false;
+  $('message').textContent='🏁 CHEGADA! Seu tempo: '+finishTime.toFixed(2)+' s';$('gas').disabled=true;$('shift').disabled=true;$('brake').disabled=true;$('start').disabled=false;$('start').textContent='CORRER NOVAMENTE';
+ }
+ update();draw();
+ if(state==='race')requestAnimationFrame(loop);
+}
+function shiftAuto(){gear++;rpm=Math.max(2500,rpm-1900);$('message').textContent='Câmbio automático: marcha '+gearNames[gear];}
+function update(){
+ $('speed').textContent=Math.round(speed)+' km/h';$('gear').textContent=gearNames[gear];$('rpm').textContent=Math.round(rpm);
+ $('distance').textContent=Math.floor(distance)+' m';$('time').textContent=(state==='finished'?finishTime:elapsed).toFixed(2)+' s';
+ $('auto').textContent='CÂMBIO: '+(auto?'AUTOMÁTICO':'MANUAL');
+}
+function draw(){
+ const w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);
+ const sky=ctx.createLinearGradient(0,0,0,210);sky.addColorStop(0,'#121a2b');sky.addColorStop(1,'#34465b');ctx.fillStyle=sky;ctx.fillRect(0,0,w,210);
+ // lights and distant scenery
+ for(let i=0;i<12;i++){let x=i*90-(distance*1.8%90);ctx.fillStyle='#f8d477';ctx.fillRect(x+20,75,5,35);ctx.fillStyle='#64758a';ctx.fillRect(x+16,110,13,90);}
+ ctx.fillStyle='#252a32';ctx.fillRect(0,205,w,155);
+ ctx.fillStyle='#cbd2dc';ctx.fillRect(0,220,w,4);ctx.fillRect(0,345,w,4);
+ for(let x=0;x<w;x+=100){let xx=(x-distance*5%100);ctx.fillStyle='#f5f5f5';ctx.fillRect(xx,278,48,5);}
+ // start/finish marker
+ ctx.fillStyle='#fff';ctx.fillRect(770,190,5,160);
+ for(let y=190;y<220;y+=10)for(let x=770;x<790;x+=10){ctx.fillStyle=((x+y)/10)%2?'#111':'#fff';ctx.fillRect(x,y,10,10);}
+ // car body
+ const bob=state==='race'?Math.sin(performance.now()/65)*1.5:0;
+ ctx.save();ctx.translate(170,250+bob);
+ ctx.fillStyle='#080b10';ctx.beginPath();ctx.ellipse(125,70,130,12,0,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#e52535';ctx.beginPath();ctx.moveTo(0,48);ctx.lineTo(25,25);ctx.lineTo(72,18);ctx.lineTo(105,-12);ctx.lineTo(180,-12);ctx.lineTo(220,22);ctx.lineTo(255,32);ctx.lineTo(270,55);ctx.lineTo(260,64);ctx.lineTo(8,64);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#b8e7f5';ctx.beginPath();ctx.moveTo(83,17);ctx.lineTo(111,-7);ctx.lineTo(174,-7);ctx.lineTo(202,18);ctx.closePath();ctx.fill();
+ ctx.fillStyle='#9e1622';ctx.fillRect(25,28,205,7);
+ for(const x of [55,210]){ctx.fillStyle='#080b10';ctx.beginPath();ctx.arc(x,58,22,0,Math.PI*2);ctx.fill();ctx.fillStyle='#aab4c0';ctx.beginPath();ctx.arc(x,58,10,0,Math.PI*2);ctx.fill();}
+ ctx.fillStyle='#fff4b0';ctx.fillRect(246,37,12,8);ctx.restore();
+ // speed streaks
+ if(gas&&state==='race'){ctx.strokeStyle='#9deaff66';ctx.lineWidth=2;for(let i=0;i<8;i++){let y=230+i*13;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(70+Math.random()*100,y);ctx.stroke();}}
+}
+$('start').onclick=()=>{if(state==='finished'){reset();$('start').textContent='INICIAR CORRIDA';}start()};
+$('gas').onpointerdown=e=>{gas=true;e.currentTarget.setPointerCapture(e.pointerId)};
+$('gas').onpointerup=$('gas').onpointercancel=()=>gas=false;
+$('brake').onpointerdown=e=>{brake=true;e.currentTarget.setPointerCapture(e.pointerId)};
+$('brake').onpointerup=$('brake').onpointercancel=()=>brake=false;
+$('shift').onclick=shiftGear;
+$('reset').onclick=()=>{$('start').textContent='INICIAR CORRIDA';reset();draw()};
+$('auto').onclick=()=>{auto=!auto;update()};
+window.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();gas=true}if(e.code==='ShiftLeft'||e.code==='ShiftRight')shiftGear();if(e.code==='ControlLeft'||e.code==='ControlRight')brake=true;if(e.code==='Enter'&&state==='ready')start()});
+window.addEventListener('keyup',e=>{if(e.code==='Space')gas=false;if(e.code==='ControlLeft'||e.code==='ControlRight')brake=false});
+reset();draw();
+</script>
+</body>
+</html>
